@@ -1,0 +1,247 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local ShootRemote, SlideRemote, DribbleRemote, SprintRemote, PassRemote = nil, nil, nil, nil, nil
+for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+    if obj:IsA("RemoteEvent") then
+        local n = obj.Name:lower()
+        if n:find("shoot") or n:find("sut") then ShootRemote = obj end
+        if n:find("slide") or n:find("kay") then SlideRemote = obj end
+        if n:find("dribble") or n:find("calim") then DribbleRemote = obj end
+        if n:find("sprint") or n:find("run") or n:find("kos") then SprintRemote = obj end
+        if n:find("pass") or n:find("pas") then PassRemote = obj end
+    end
+    if obj:IsA("RemoteFunction") then
+        local n = obj.Name:lower()
+        if n:find("shoot") or n:find("sut") then ShootRemote = obj end
+        if n:find("slide") or n:find("kay") then SlideRemote = obj end
+    end
+end
+
+local Ball = nil
+for _, obj in ipairs(Workspace:GetDescendants()) do
+    if obj:IsA("BasePart") then
+        if obj.Name:lower():find("ball") or obj.Name:lower():find("top") or obj.Name:lower():find("soccer") then Ball = obj break end
+    end
+end
+if not Ball then
+    for _, folder in ipairs(Workspace:GetChildren()) do
+        if folder.Name:lower():find("ball") or folder.Name:lower():find("top") then
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if obj:IsA("BasePart") and obj.Name:lower():find("ball") then Ball = obj break end
+            end
+        end
+        if Ball then break end
+    end
+end
+
+for _, obj in ipairs(game:GetDescendants()) do
+    if obj:IsA("ModuleScript") or obj:IsA("Script") or obj:IsA("LocalScript") then
+        local s = obj.Source:lower()
+        if s:find("walkspeed") or s:find("speed") or s:find("hiz") or s:find("teleport") or s:find("cframe") or s:find("ban") or s:find("kick") or s:find("exploit") or s:find("detect") or s:find("cheat") or s:find("hack") or s:find("velocity") then
+            pcall(function() obj.Disabled = true obj.Enabled = false end)
+        end
+    end
+end
+
+local StaminaSystem = nil
+local MaxStamina = 100
+if LocalPlayer.Character then
+    for _, child in ipairs(LocalPlayer.Character:GetChildren()) do
+        if child:IsA("NumberValue") or child:IsA("IntValue") then
+            local n = child.Name:lower()
+            if n:find("stamina") or n:find("energy") or n:find("sprint") or n:find("dayan") then
+                StaminaSystem = child
+                MaxStamina = child.Value
+            end
+        end
+    end
+end
+
+local DefaultWalkSpeed = 16
+local ShootCooldown = 1.5
+local Config = {
+    Dribble = { Enabled = true, Range = 10, Cooldown = 0.5 },
+    Shoot = { Enabled = true, Range = 50, Power = 85 },
+    Slide = { Enabled = true, Range = 10, Cooldown = 1.5 },
+    Speed = { Enabled = false, UseGameSprint = true },
+}
+local LastDribbleTime, LastShootTime, LastSlideTime, LastSprintTime = 0, 0, 0, 0
+local IsScriptActive = true
+
+local function UseGameSprint()
+    if not Config.Speed.UseGameSprint then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        if tick() - LastSprintTime > 0.1 then
+            LastSprintTime = tick()
+            if SprintRemote then pcall(function() SprintRemote:FireServer(true) end) end
+            if StaminaSystem and StaminaSystem.Value > 10 then humanoid.WalkSpeed = 24 else humanoid.WalkSpeed = 16 end
+        end
+    else
+        humanoid.WalkSpeed = 16
+        if SprintRemote then pcall(function() SprintRemote:FireServer(false) end) end
+    end
+end
+
+local function AutoShootSafe()
+    if not Config.Shoot.Enabled then return end
+    if tick() - LastShootTime < ShootCooldown then return end
+    if not ShootRemote then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp or not Ball then return end
+    if (Ball.Position - hrp.Position).Magnitude > 4 then return end
+    local goals = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name:lower():find("goal") then table.insert(goals, obj) end
+    end
+    local targetGoal = nil
+    for _, goal in ipairs(goals) do
+        if (goal.Position - hrp.Position).Magnitude > 20 then targetGoal = goal break end
+    end
+    if not targetGoal then return end
+    if (targetGoal.Position - hrp.Position).Magnitude < Config.Shoot.Range then
+        LastShootTime = tick()
+        local tp = targetGoal.Position + Vector3.new((math.random()-0.5)*targetGoal.Size.X*0.6, targetGoal.Size.Y*0.8, 0)
+        local sd = (tp - Ball.Position).Unit
+        pcall(function()
+            if ShootRemote:IsA("RemoteEvent") then ShootRemote:FireServer(sd, Config.Shoot.Power)
+            else ShootRemote:InvokeServer(sd, Config.Shoot.Power) end
+        end)
+    end
+end
+
+local function AutoSlideSafe()
+    if not Config.Slide.Enabled then return end
+    if tick() - LastSlideTime < Config.Slide.Cooldown then return end
+    if not SlideRemote then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp or not Ball then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local ohrp = player.Character.HumanoidRootPart
+            if (ohrp.Position - Ball.Position).Magnitude < 4 and (ohrp.Position - hrp.Position).Magnitude <= Config.Slide.Range then
+                LastSlideTime = tick()
+                local sd = (ohrp.Position - hrp.Position).Unit
+                pcall(function()
+                    if SlideRemote:IsA("RemoteEvent") then SlideRemote:FireServer(sd)
+                    else SlideRemote:InvokeServer(sd) end
+                end)
+                break
+            end
+        end
+    end
+end
+
+local function AutoDribbleSafe()
+    if not Config.Dribble.Enabled then return end
+    if tick() - LastDribbleTime < Config.Dribble.Cooldown then return end
+    if not DribbleRemote then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local closestOpp, minDist = nil, Config.Dribble.Range
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (player.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+            if d < minDist then minDist = d; closestOpp = player.Character end
+        end
+    end
+    if closestOpp then
+        LastDribbleTime = tick()
+        local ed = (hrp.Position - closestOpp.HumanoidRootPart.Position).Unit
+        pcall(function()
+            if DribbleRemote:IsA("RemoteEvent") then DribbleRemote:FireServer(ed)
+            else DribbleRemote:InvokeServer(ed) end
+        end)
+    end
+end
+
+local function MainLoop()
+    if not IsScriptActive then return end
+    if not Ball then for _, obj in ipairs(Workspace:GetDescendants()) do if obj:IsA("BasePart") and (obj.Name:lower():find("ball") or obj.Name:lower():find("top")) then Ball = obj break end end end
+    pcall(UseGameSprint)
+    pcall(AutoShootSafe)
+    pcall(AutoSlideSafe)
+    pcall(AutoDribbleSafe)
+end
+
+local function CreateGUI()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "SoccerSafeGUI"
+    sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    sg.ResetOnSpawn = false
+    local mf = Instance.new("Frame")
+    mf.Size = UDim2.new(0,220,0,200)
+    mf.Position = UDim2.new(0,10,0.5,-100)
+    mf.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    mf.BorderSizePixel = 0
+    mf.Active = true
+    mf.Draggable = true
+    mf.Parent = sg
+    local t = Instance.new("TextLabel")
+    t.Text = "SAFE SOCCER v1"
+    t.Size = UDim2.new(1,0,0,25)
+    t.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    t.TextColor3 = Color3.fromRGB(0,255,0)
+    t.Font = Enum.Font.SourceSansBold
+    t.TextSize = 11
+    t.Parent = mf
+    local function ct(n,y,d,cb)
+        local tf = Instance.new("Frame")
+        tf.Size = UDim2.new(1,-20,0,22)
+        tf.Position = UDim2.new(0,10,0,y)
+        tf.BackgroundTransparency = 1
+        tf.Parent = mf
+        local l = Instance.new("TextLabel")
+        l.Text = n
+        l.Size = UDim2.new(0.65,0,1,0)
+        l.BackgroundTransparency = 1
+        l.TextColor3 = Color3.fromRGB(255,255,255)
+        l.TextSize = 11
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Parent = tf
+        local b = Instance.new("TextButton")
+        b.Text = d and "ON" or "OFF"
+        b.Size = UDim2.new(0.35,0,1,0)
+        b.Position = UDim2.new(0.65,0,0,0)
+        b.BackgroundColor3 = d and Color3.fromRGB(0,150,0) or Color3.fromRGB(150,0,0)
+        b.TextColor3 = Color3.fromRGB(255,255,255)
+        b.TextSize = 11
+        b.Parent = tf
+        local s = d
+        b.MouseButton1Click:Connect(function()
+            s = not s
+            b.Text = s and "ON" or "OFF"
+            b.BackgroundColor3 = s and Color3.fromRGB(0,150,0) or Color3.fromRGB(150,0,0)
+            cb(s)
+        end)
+    end
+    ct("Auto Shoot",35,true,function(s) Config.Shoot.Enabled = s end)
+    ct("Auto Slide",62,true,function(s) Config.Slide.Enabled = s end)
+    ct("Auto Dribble",89,true,function(s) Config.Dribble.Enabled = s end)
+    ct("Game Sprint",116,true,function(s) Config.Speed.UseGameSprint = s end)
+    local cb = Instance.new("TextButton")
+    cb.Text = "KAPAT"
+    cb.Size = UDim2.new(1,-20,0,30)
+    cb.Position = UDim2.new(0,10,0,160)
+    cb.BackgroundColor3 = Color3.fromRGB(180,0,0)
+    cb.TextColor3 = Color3.fromRGB(255,255,255)
+    cb.TextSize = 13
+    cb.Parent = mf
+    cb.MouseButton1Click:Connect(function() IsScriptActive = false sg:Destroy() end)
+end
+
+RunService.Heartbeat:Connect(MainLoop)
+pcall(CreateGUI)
