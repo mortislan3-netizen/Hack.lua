@@ -1,0 +1,149 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local ShootRemote, SlideRemote = nil, nil
+for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+    if obj:IsA("RemoteEvent") then
+        local n = obj.Name:lower()
+        if n:find("shoot") or n:find("sut") then ShootRemote = obj end
+        if n:find("slide") or n:find("kay") or n:find("tackle") then SlideRemote = obj end
+    end
+    if obj:IsA("RemoteFunction") then
+        local n = obj.Name:lower()
+        if n:find("shoot") or n:find("sut") then ShootRemote = obj end
+        if n:find("slide") or n:find("kay") or n:find("tackle") then SlideRemote = obj end
+    end
+end
+
+local function FindBall()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local n = obj.Name:lower()
+            if n:find("ball") or n:find("top") or n:find("soccer") or n:find("football") then return obj end
+        end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj:GetAttribute("IsBall") == true then return obj end
+    end
+    return nil
+end
+
+local function FindEnemyGoal()
+    local goals = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            if obj.Name:lower():find("goal") or obj.Name:lower():find("kale") then table.insert(goals, obj) end
+        end
+    end
+    if #goals == 0 then return nil end
+    local char = LocalPlayer.Character
+    if not char then return goals[1] end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return goals[1] end
+    local myPos, myGoal, minDist = hrp.Position, nil, math.huge
+    for _, goal in ipairs(goals) do
+        local d = (goal.Position - myPos).Magnitude
+        if d < minDist then minDist = d; myGoal = goal end
+    end
+    for _, goal in ipairs(goals) do if goal ~= myGoal then return goal end end
+    return goals[1]
+end
+
+local function TeleportToBall(ball)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp or not ball then return end
+    local dist = (ball.Position - hrp.Position).Magnitude
+    if dist > 8 and dist < 80 then
+        local behindBall = ball.CFrame * CFrame.new(0, 0, 2)
+        local rayOrigin = behindBall.Position + Vector3.new(0, 5, 0)
+        local rayDirection = Vector3.new(0, -10, 0)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        raycastParams.FilterDescendantsInstances = {char}
+        local rayResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        if rayResult then behindBall = CFrame.new(behindBall.X, rayResult.Position.Y + 3, behindBall.Z) end
+        local tweenService = game:GetService("TweenService")
+        local tween = tweenService:Create(hrp, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {CFrame = behindBall})
+        tween:Play()
+    elseif dist > 0.5 and dist <= 8 then
+        local direction = (ball.Position - hrp.Position).Unit
+        hrp.CFrame = hrp.CFrame + direction * 0.5
+    end
+end
+
+local function AutoShootCorner(ball, goal)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp or not ball or not goal then return end
+    if (ball.Position - hrp.Position).Magnitude > 3 then return end
+    if (goal.Position - hrp.Position).Magnitude > 55 then return end
+    if _G.LastShootTime and tick() - _G.LastShootTime < 5 then return end
+    _G.LastShootTime = tick()
+    local goalCFrame, goalSize = goal.CFrame, goal.Size
+    local cornerOffset = math.random(1,2)==1 and Vector3.new(goalSize.X*0.4, goalSize.Y*0.85, 0) or Vector3.new(-goalSize.X*0.4, goalSize.Y*0.85, 0)
+    local targetPos = goalCFrame * CFrame.new(cornerOffset)
+    local shootDir = (targetPos.Position - ball.Position).Unit
+    local shootPower = 85
+    if ShootRemote then
+        pcall(function()
+            if ShootRemote:IsA("RemoteEvent") then ShootRemote:FireServer(shootDir, shootPower)
+            else ShootRemote:InvokeServer(shootDir, shootPower) end
+        end)
+    else
+        if ball:IsA("BasePart") then ball.Velocity = shootDir*shootPower ball.RotVelocity = Vector3.new(math.random(-30,30),math.random(-30,30),math.random(-30,30)) end
+    end
+end
+
+local function AutoSlideTackle(ball)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp or not ball then return end
+    local ballOwner = nil
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local ohrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if ohrp and (ohrp.Position - ball.Position).Magnitude < 3 then ballOwner = player.Character break end
+        end
+    end
+    if not ballOwner then return end
+    local ohrp = ballOwner:FindFirstChild("HumanoidRootPart")
+    if not ohrp then return end
+    if (ohrp.Position - hrp.Position).Magnitude > 10 then return end
+    if _G.LastSlideTime and tick() - _G.LastSlideTime < 3 then return end
+    _G.LastSlideTime = tick()
+    local slideDir = (ohrp.Position - hrp.Position).Unit
+    if SlideRemote then
+        pcall(function()
+            if SlideRemote:IsA("RemoteEvent") then SlideRemote:FireServer(slideDir)
+            else SlideRemote:InvokeServer(slideDir) end
+        end)
+    else
+        if char:FindFirstChild("Humanoid") then char.Humanoid.Sit = true hrp.Velocity = slideDir*30 wait(0.3) char.Humanoid.Sit = false end
+    end
+    wait(0.2)
+    if math.random(1,100) <= 85 and ball and char:FindFirstChild("HumanoidRootPart") then
+        ball.CFrame = char.HumanoidRootPart.CFrame * CFrame.new(0,0,-2)
+        ball.Velocity = Vector3.new(0,0,0)
+    end
+end
+
+local function MainLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local ball = FindBall()
+    if not ball then return end
+    local goal = FindEnemyGoal()
+    pcall(function() TeleportToBall(ball) end)
+    pcall(function() AutoSlideTackle(ball) end)
+    if goal then pcall(function() AutoShootCorner(ball, goal) end) end
+end
+
+RunService.Heartbeat:Connect(MainLoop)
