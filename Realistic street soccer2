@@ -1,0 +1,251 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+local Ball = nil
+local EnemyGoal = nil
+local SlideEnabled = true
+local TeleportEnabled = true
+local ShootKey = Enum.KeyCode.E
+local SlideKey = Enum.KeyCode.Q
+local TeleportKey = Enum.KeyCode.R
+local IsShooting = false
+local IsSliding = false
+local LastShoot = 0
+local LastSlide = 0
+local LastTeleport = 0
+
+local function FindBall()
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("BasePart") then
+            local n = v.Name:lower()
+            if n:find("ball") or n:find("top") or n:find("soccer") then
+                Ball = v
+                return v
+            end
+        end
+    end
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("BasePart") and v:GetAttribute("IsBall") then
+            Ball = v
+            return v
+        end
+    end
+    return nil
+end
+
+local function FindEnemyGoal()
+    local goals = {}
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("BasePart") then
+            if v.Name:lower():find("goal") or v.Name:lower():find("kale") then
+                table.insert(goals, v)
+            end
+        end
+    end
+    if #goals < 2 then EnemyGoal = goals[1]; return goals[1] end
+    local char = LocalPlayer.Character
+    if not char then EnemyGoal = goals[1]; return goals[1] end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then EnemyGoal = goals[1]; return goals[1] end
+    local myPos = hrp.Position
+    local closestToMe, minDist = nil, math.huge
+    for _, g in ipairs(goals) do
+        local d = (g.Position - myPos).Magnitude
+        if d < minDist then minDist = d; closestToMe = g end
+    end
+    for _, g in ipairs(goals) do
+        if g ~= closestToMe then EnemyGoal = g; return g end
+    end
+    EnemyGoal = goals[1]
+    return goals[1]
+end
+
+local function GetTopCorner(shootPos)
+    if not EnemyGoal then return nil end
+    local cf = EnemyGoal.CFrame
+    local sz = EnemyGoal.Size
+    local rightCorner = (cf * CFrame.new(sz.X * 0.35, sz.Y * 0.85, 0)).Position
+    local leftCorner = (cf * CFrame.new(-sz.X * 0.35, sz.Y * 0.85, 0)).Position
+    local distToRight = (rightCorner - shootPos).Magnitude
+    local distToLeft = (leftCorner - shootPos).Magnitude
+    if distToRight < distToLeft then
+        return rightCorner
+    else
+        return leftCorner
+    end
+end
+
+local function ShootToCorner()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not Ball then Ball = FindBall() end
+    if not Ball then return end
+    if (Ball.Position - hrp.Position).Magnitude > 5 then return end
+    if not EnemyGoal then EnemyGoal = FindEnemyGoal() end
+    if not EnemyGoal then return end
+    if tick() - LastShoot < 4 then return end
+    LastShoot = tick()
+    local targetPos = GetTopCorner(hrp.Position)
+    if not targetPos then return end
+    local shootDir = (targetPos - Ball.Position).Unit
+    if Ball:IsA("BasePart") then
+        Ball.Velocity = shootDir * 90
+        Ball.AssemblyLinearVelocity = shootDir * 90
+    end
+end
+
+local function SlideTackle()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not Ball then Ball = FindBall() end
+    if not Ball then return end
+    if tick() - LastSlide < 2.5 then return end
+    local targetOpp = nil
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local ohrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if ohrp and (ohrp.Position - Ball.Position).Magnitude < 5 then
+                if (ohrp.Position - hrp.Position).Magnitude < 15 then
+                    targetOpp = plr.Character
+                    break
+                end
+            end
+        end
+    end
+    if not targetOpp then return end
+    LastSlide = tick()
+    local ohrp = targetOpp.HumanoidRootPart
+    local dir = (ohrp.Position - hrp.Position).Unit
+    local humanoid = char:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.Sit = true
+        hrp.AssemblyLinearVelocity = dir * 45
+        task.wait(0.15)
+        if (ohrp.Position - hrp.Position).Magnitude < 8 then
+            Ball.CFrame = hrp.CFrame * CFrame.new(0, 0, -3)
+            Ball.AssemblyLinearVelocity = Vector3.zero
+        end
+        task.wait(0.3)
+        humanoid.Sit = false
+    end
+end
+
+local function TeleportToBallFunc()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not Ball then Ball = FindBall() end
+    if not Ball then return end
+    local dist = (Ball.Position - hrp.Position).Magnitude
+    if dist < 3 or dist > 100 then return end
+    if tick() - LastTeleport < 1 then return end
+    LastTeleport = tick()
+    local targetCF = Ball.CFrame * CFrame.new(0, 0, 3)
+    local rayOrigin = targetCF.Position + Vector3.new(0, 5, 0)
+    local rayDir = Vector3.new(0, -15, 0)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {char}
+    local hit = Workspace:Raycast(rayOrigin, rayDir, rp)
+    if hit then
+        targetCF = CFrame.new(targetCF.X, hit.Position.Y + 3.5, targetCF.Z)
+    end
+    local tween = TweenService:Create(hrp, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {CFrame = targetCF})
+    tween:Play()
+end
+
+local function CreateGUI()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "SoccerMenu"
+    sg.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local mf = Instance.new("Frame")
+    mf.Size = UDim2.new(0, 220, 0, 200)
+    mf.Position = UDim2.new(0.5, -110, 0.5, -100)
+    mf.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    mf.BorderSizePixel = 0
+    mf.Active = true
+    mf.Draggable = true
+    mf.Parent = sg
+
+    local title = Instance.new("TextLabel")
+    title.Text = "SOCCER HACK MENU"
+    title.Size = UDim2.new(1, 0, 0, 28)
+    title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.SourceSansBold
+    title.TextSize = 13
+    title.Parent = mf
+
+    local shootBtn = Instance.new("TextButton")
+    shootBtn.Text = "SUPER SUT [E]"
+    shootBtn.Size = UDim2.new(1, -20, 0, 35)
+    shootBtn.Position = UDim2.new(0, 10, 0, 38)
+    shootBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+    shootBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    shootBtn.Font = Enum.Font.SourceSansBold
+    shootBtn.TextSize = 14
+    shootBtn.Parent = mf
+    shootBtn.MouseButton1Click:Connect(ShootToCorner)
+
+    local slideBtn = Instance.new("TextButton")
+    slideBtn.Text = "KAYARAK CAL [Q]"
+    slideBtn.Size = UDim2.new(1, -20, 0, 35)
+    slideBtn.Position = UDim2.new(0, 10, 0, 80)
+    slideBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 180)
+    slideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    slideBtn.Font = Enum.Font.SourceSansBold
+    slideBtn.TextSize = 14
+    slideBtn.Parent = mf
+    slideBtn.MouseButton1Click:Connect(SlideTackle)
+
+    local tpBtn = Instance.new("TextButton")
+    tpBtn.Text = "TOPA ISINLAN [R]"
+    tpBtn.Size = UDim2.new(1, -20, 0, 35)
+    tpBtn.Position = UDim2.new(0, 10, 0, 122)
+    tpBtn.BackgroundColor3 = Color3.fromRGB(160, 100, 0)
+    tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tpBtn.Font = Enum.Font.SourceSansBold
+    tpBtn.TextSize = 14
+    tpBtn.Parent = mf
+    tpBtn.MouseButton1Click:Connect(TeleportToBallFunc)
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Text = "X"
+    closeBtn.Size = UDim2.new(0, 28, 0, 28)
+    closeBtn.Position = UDim2.new(1, -30, 0, 0)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.SourceSansBold
+    closeBtn.TextSize = 14
+    closeBtn.Parent = mf
+    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == ShootKey then ShootToCorner() end
+    if input.KeyCode == SlideKey then SlideTackle() end
+    if input.KeyCode == TeleportKey then TeleportToBallFunc() end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart")
+    Ball = FindBall()
+    EnemyGoal = FindEnemyGoal()
+end)
+
+CreateGUI()
+Ball = FindBall()
+EnemyGoal = FindEnemyGoal()
